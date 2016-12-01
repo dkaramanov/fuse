@@ -3,10 +3,12 @@ package com.estafet.fuse.training.bankx_routes.route;
 import org.apache.camel.Exchange;
 import org.apache.camel.LoggingLevel;
 import org.apache.camel.builder.RouteBuilder;
+import org.apache.camel.dataformat.bindy.csv.BindyCsvDataFormat;
 import org.apache.camel.model.dataformat.JsonLibrary;
 import org.apache.camel.processor.idempotent.MemoryIdempotentRepository;
 import org.apache.camel.spring.Main;
 
+import com.estafet.fuse.training.bankx_models.bean.AccountsWrapper;
 import com.estafet.fuse.training.bankx_routes.processor.IbanAggregationStrategy;
 import com.estafet.fuse.training.bankx_routes.processor.IbanEnrichStrategy;
 import com.estafet.fuse.training.bankx_routes.processor.IbanProcessor;
@@ -28,6 +30,9 @@ public class MessageConsumerRouteBuilder extends RouteBuilder {
      * Let's configure the Camel routing rules using Java code...
      */
     public void configure() {
+    	BindyCsvDataFormat bindy = new BindyCsvDataFormat(AccountsWrapper.class);
+    	bindy.setLocale("default");
+    	
     	from("activemq:queue:estafet.iban.report.splitted.queue").
     	onException(Throwable.class).
 			handled(true).
@@ -40,7 +45,6 @@ public class MessageConsumerRouteBuilder extends RouteBuilder {
     	aggregate(header("IbanTimestampOfRequest"), ibanAggregationStrategy).
     	completionInterval(2000).
     	marshal().json(JsonLibrary.Jackson, true).
-    	//to("file:///d:/target1/messages/uk/?fileName=Iban${date:now:yyyy-MM-dd-hh-mm-ss}.txt");
     	setHeader("CamelFileName", simple("Iban${date:now:yyyy-MM-dd-hh-mm-ss}.txt")).
     	to("ftp://WC-FTP@localhost:21/messages/?password=DiK@1611");
   	
@@ -51,7 +55,11 @@ public class MessageConsumerRouteBuilder extends RouteBuilder {
         idempotentConsumer(header("CamelFileName"),
                         MemoryIdempotentRepository.memoryIdempotentRepository(200)).
         // Log the content of the files.
-        log(LoggingLevel.INFO, "File ${in.header.CamelFileName} received with body: ${in.body}");
+        log(LoggingLevel.INFO, "File ${in.header.CamelFileName} received with body: ${in.body}").
+        unmarshal().json(JsonLibrary.Jackson, AccountsWrapper.class).
+        marshal(bindy).
+        setHeader("CamelFileName", simple("${in.header.CamelFileName.replace(\".txt\", \".csv\")}")).
+        to("file:///d:/target1/messages/uk/");
     	
     	from("quartz://myTimer?trigger.repeatInterval=10000&trigger.repeatCount=5").
     	log("Time ::: " + simple("${date:now:yyyy-MM-dd-hh-mm-ss}"));
